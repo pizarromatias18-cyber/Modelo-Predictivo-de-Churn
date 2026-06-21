@@ -2,8 +2,12 @@ import streamlit as st
 import pandas as pd
 import joblib
 
+# Cargar los archivos que subiste a GitHub
 modelo = joblib.load('modelo_vitalfit.pkl')
 scaler = joblib.load('scaler_vitalfit.pkl')
+
+# EL TRUCO MAESTRO: Leer la mente del modelo para ver qué columnas exactas espera
+columnas_modelo = modelo.feature_names_in_
 
 st.title('Sistema de Prediccion de Churn - VitalFit S.A.')
 
@@ -17,18 +21,29 @@ if opcion == 'Individual':
     
     ticket_promedio = valor_monetario / frecuencia if frecuencia > 0 else 0
     
-    # CORRECCIÓN DE VARIABLES: El modelo espera Frecuente y Regular
-    frecuente = 1 if frecuencia > 12 else 0
-    regular = 1 if 5 <= frecuencia <= 12 else 0
-    
     if st.button('Evaluar Riesgo'):
-        # CORRECCIÓN DE NOMBRES DE COLUMNAS EXACTOS AL ENTRENAMIENTO
-        datos = pd.DataFrame([[recencia, frecuencia, valor_monetario, ticket_promedio, frecuente, regular]],
-                             columns=['recencia', 'frecuencia', 'valor_monetario', 'ticket_promedio', 'tipo_cliente_Frecuente', 'tipo_cliente_Regular'])
+        # Crear una tabla vacía que tenga EXACTAMENTE las columnas que el modelo pidió
+        datos = pd.DataFrame(0, index=[0], columns=columnas_modelo)
         
+        # Llenar las columnas que siempre existen
+        datos['recencia'] = recencia
+        datos['frecuencia'] = frecuencia
+        datos['valor_monetario'] = valor_monetario
+        datos['ticket_promedio'] = ticket_promedio
+        
+        # Llenar las columnas de tipo de cliente SOLO si el modelo las está pidiendo
+        if 'tipo_cliente_Esporadico' in columnas_modelo:
+            datos['tipo_cliente_Esporadico'] = 1 if frecuencia <= 4 else 0
+        if 'tipo_cliente_Regular' in columnas_modelo:
+            datos['tipo_cliente_Regular'] = 1 if 5 <= frecuencia <= 12 else 0
+        if 'tipo_cliente_Frecuente' in columnas_modelo:
+            datos['tipo_cliente_Frecuente'] = 1 if frecuencia > 12 else 0
+            
+        # Normalizar los datos matemáticos
         cols_num = ['recencia', 'frecuencia', 'valor_monetario', 'ticket_promedio']
         datos[cols_num] = scaler.transform(datos[cols_num])
         
+        # Predecir
         prediccion = modelo.predict(datos)[0]
         probabilidad = modelo.predict_proba(datos)[0][1]
         
@@ -45,21 +60,26 @@ else:
         df = pd.read_csv(archivo)
         
         if st.button('Procesar Lista'):
-            df_procesado = df.copy()
-            df_procesado['ticket_promedio'] = df_procesado['valor_monetario'] / df_procesado['frecuencia']
+            # Misma lógica dinámica pero para múltiples clientes
+            df_procesado = pd.DataFrame(0, index=df.index, columns=columnas_modelo)
             
-            # CORRECCIÓN DE VARIABLES
-            df_procesado['tipo_cliente_Frecuente'] = df_procesado['frecuencia'].apply(lambda x: 1 if x > 12 else 0)
-            df_procesado['tipo_cliente_Regular'] = df_procesado['frecuencia'].apply(lambda x: 1 if 5 <= x <= 12 else 0)
+            df_procesado['recencia'] = df['recencia']
+            df_procesado['frecuencia'] = df['frecuencia']
+            df_procesado['valor_monetario'] = df['valor_monetario']
+            df_procesado['ticket_promedio'] = df['valor_monetario'] / df['frecuencia']
+            
+            if 'tipo_cliente_Esporadico' in columnas_modelo:
+                df_procesado['tipo_cliente_Esporadico'] = df['frecuencia'].apply(lambda x: 1 if x <= 4 else 0)
+            if 'tipo_cliente_Regular' in columnas_modelo:
+                df_procesado['tipo_cliente_Regular'] = df['frecuencia'].apply(lambda x: 1 if 5 <= x <= 12 else 0)
+            if 'tipo_cliente_Frecuente' in columnas_modelo:
+                df_procesado['tipo_cliente_Frecuente'] = df['frecuencia'].apply(lambda x: 1 if x > 12 else 0)
             
             cols_num = ['recencia', 'frecuencia', 'valor_monetario', 'ticket_promedio']
             df_procesado[cols_num] = scaler.transform(df_procesado[cols_num])
             
-            # CORRECCIÓN DE NOMBRES DE COLUMNAS
-            caracteristicas = ['recencia', 'frecuencia', 'valor_monetario', 'ticket_promedio', 'tipo_cliente_Frecuente', 'tipo_cliente_Regular']
-            
-            df['Prediccion_Churn'] = modelo.predict(df_procesado[caracteristicas])
-            df['Probabilidad_Fuga_%'] = (modelo.predict_proba(df_procesado[caracteristicas])[:, 1] * 100).round(2)
+            df['Prediccion_Churn'] = modelo.predict(df_procesado)
+            df['Probabilidad_Fuga_%'] = (modelo.predict_proba(df_procesado)[:, 1] * 100).round(2)
             
             st.write('Resultados del Analisis:')
             st.dataframe(df)
