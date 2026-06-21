@@ -62,4 +62,4 @@ else:
             df['Probabilidad_Fuga_%'] = (modelo.predict_proba(df_procesado[caracteristicas])[:, 1] * 100).round(2)
             
             st.write('Resultados del Analisis:')
-            st.dataframe(df))
+            st.dataframe(df)
